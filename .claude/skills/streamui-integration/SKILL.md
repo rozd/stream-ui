@@ -77,8 +77,10 @@ always application code. If your source is already `AsyncSequence` (URLSession's
 callback-based, delegate-based, or a Combine publisher, you need a small wrapper
 first. Read `references/adapter-pattern.md` before writing one — there is a
 specific, easy-to-hit lifetime bug (a class-backed listener deallocating and tearing
-down its subscription *before* the first value arrives) that the reference explains
-and that `StreamValue.run()` only partially protects you from.
+down its subscription *before* the first value arrives) that the reference explains.
+StreamUI pins the sequence for you on both consumption paths (`StreamValue.run()`
+and `StreamBuilder(id:stream:)`), but any hand-rolled `for try await` loop over a
+class-backed adapter must apply the same pin itself.
 
 ## 4. Define the store
 

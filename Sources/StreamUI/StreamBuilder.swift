@@ -88,15 +88,7 @@ public struct StreamBuilder<
             }
             .task(id: id) {
                 sequenceState = .empty
-                do {
-                    for try await item in make(id) {
-                        sequenceState = .value(item)
-                    }
-                } catch {
-                    if !(error is CancellationError) {
-                        sequenceState = .error(error)
-                    }
-                }
+                await consumeSequence(from: { make(id) }) { sequenceState = $0 }
             }
         }
     }
@@ -116,6 +108,31 @@ extension StreamBuilder where ID == EmptyEquatable {
 
 public nonisolated struct EmptyEquatable: Equatable, Sendable {
     public init() {}
+}
+
+/// Consumes one sequence until it ends, fails, or the surrounding task is
+/// cancelled, reporting each transition through `update`. The `StreamBuilder`
+/// `.sequence` counterpart of `StreamValue.run()`.
+@MainActor
+func consumeSequence<T: Sendable>(
+    from make: () -> any AsyncSequence<T, any Error>,
+    update: (StreamState<T>) -> Void
+) async {
+    let stream = make()
+    // Class-backed sequences (Firestore's ListenerStream) clean up in
+    // deinit, and nothing retains them once the iterator is taken — pin
+    // the sequence for the whole loop or the listener dies before the
+    // first snapshot.
+    defer { withExtendedLifetime(stream) {} }
+    do {
+        for try await item in stream {
+            update(.value(item))
+        }
+    } catch {
+        if !(error is CancellationError) {
+            update(.error(error))
+        }
+    }
 }
 
 extension View {

@@ -106,17 +106,12 @@ defer { withExtendedLifetime(stream) {} }
 for try await value in stream { … }
 ```
 
-which pins the sequence for the whole loop. This is one more reason to prefer a
-`StreamValue`-backed store (Step 4 in `SKILL.md`) over the bare
-`StreamBuilder(id:stream:)` initializer whenever your adapter is class-backed:
-`StreamBuilder`'s id-keyed variant iterates its sequence directly
-(`for try await item in make(id) { ... }`, StreamBuilder.swift) with no equivalent
-pin, which reproduces the exact pattern DESIGN.md calls "BROKEN — do not simplify to
-this." Until that's addressed upstream, treat `StreamBuilder(id:stream:)` as safe
-only for sequences that don't rely on class-based deinit cleanup (plain
-`AsyncThrowingStream`s from Shape 1, `URLSession.bytes(for:)`, etc.) — route
-anything class-backed through a named `StreamValue` store instead, even if you
-don't otherwise need a name, retry, or sharing.
+which pins the sequence for the whole loop. **The bare `StreamBuilder(id:stream:)`
+initializer applies the same pin** (via `consumeSequence(from:update:)` in
+StreamBuilder.swift, regression-tested by `StreamBuilderTests`), so class-backed
+adapters are safe through either path. Choose between them on the usual grounds —
+prefer a `StreamValue`-backed store (Step 4 in `SKILL.md`) when the state needs a
+name, retry/refresh, composition, or multiple observers.
 
 ## A smaller related fact worth knowing
 
