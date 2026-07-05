@@ -1,0 +1,45 @@
+{
+  "skill_name": "streamui-integration",
+  "evals": [
+    {
+      "id": 1,
+      "name": "tickets-callback-adapter",
+      "prompt": "I'm building a SwiftUI iOS app (min deployment target: iOS 18) and want to add a live-updating support-ticket list to a screen called TicketsListScreen. My backend SDK exposes:\n\nfinal class TicketsService {\n    func subscribe(status: TicketStatus, onUpdate: @escaping ([Ticket]) -> Void, onError: @escaping (Error) -> Void) -> SubscriptionToken\n}\n\nfinal class SubscriptionToken {\n    func cancel()\n}\n\nstruct Ticket: Identifiable, Sendable { let id: String; let title: String; let status: TicketStatus }\nenum TicketStatus: Sendable { case open, closed }\n\nA teammate says there's a small local Swift package called StreamUI (path: /Users/max/dev/rozd/stream-ui, product name StreamUI) meant for exactly this kind of thing. Please: 1) show how to add it as a local SPM dependency, 2) write the code to adapt TicketsService.subscribe into whatever StreamUI needs, 3) write a named store plus a TicketsListScreen SwiftUI view showing the list, a loading state, and an error state with a retry button. Write the actual Swift files, not just a description.",
+      "expected_output": "Working Swift files: an AsyncSequence adapter wrapping the callback-based TicketsService (with correct teardown of the SubscriptionToken), a @Observable StreamValue<[Ticket]> subclass, and a TicketsListScreen using StreamBuilder with empty/value/error rendering and a refresh()-driven retry button. Should not construct the store inline in the view's body.",
+      "files": [],
+      "assertions": [
+        "Code compiles successfully against the local StreamUI package (swift build)",
+        "Defines an AsyncSequence-conforming adapter that wraps TicketsService.subscribe and cancels the SubscriptionToken exactly once when the sequence's consumer stops (e.g. in deinit or a continuation onTermination)",
+        "Defines a named @Observable subclass of StreamValue<[Ticket]> as the store, not an anonymous/inline StreamValue instance",
+        "TicketsListScreen owns the store via @State (not constructed inline inside another view's body) and renders three cases (loading/value/error) with a retry action calling refresh()",
+        "Nothing calls .run() on the store directly, and no free-running Task wraps the subscription"
+      ]
+    },
+    {
+      "id": 2,
+      "name": "delete-account-oneshot",
+      "prompt": "I'm building a SwiftUI iOS app (min deployment target: iOS 18) with a Settings screen. There's a 'Delete Account' button. Tapping it should call `await AccountAPI.deleteAccount(userId:)` (an async throwing function), show a spinner while it's in flight, disable the button, and afterward either dismiss the screen on success or show an error message with the ability to try again. My teammate mentioned we should use a local Swift package called StreamUI (path: /Users/max/dev/rozd/stream-ui, product name StreamUI) for stuff like this. What's the right way to build this? Write the actual Swift code for the button/view and whatever backing type you use.",
+      "expected_output": "Uses FutureValue<Void, Void> (or similar Params/Result), not StreamValue, since this is a one-shot write with no live data. State machine walks initial/loading/success/failure; view disables the button while isLoading and reacts to success/failure.",
+      "files": [],
+      "assertions": [
+        "Code compiles successfully against the local StreamUI package (swift build)",
+        "Uses FutureValue (not StreamValue) as the backing async state holder for the delete action",
+        "The button is disabled while the operation is in flight (isLoading) and the view reacts distinctly to success vs. failure",
+        "Does not introduce a custom AsyncSequence/stream for what is a single one-shot async call"
+      ]
+    },
+    {
+      "id": 3,
+      "name": "workout-sessions-parameterized",
+      "prompt": "I'm building a SwiftUI iOS app (min deployment target: iOS 18). I want a screen, SessionsScreen, with: a DatePicker at the top bound to a Date; below it, a live list of workout sessions for the selected date, coming from `WorkoutsAPI.sessionsStream(studioId: StudioId, on: Date) -> AsyncThrowingStream<[WorkoutSession], Error>` (changing the date should restart the subscription with the new date); and a 'Start Workout' button that calls `await WorkoutsAPI.startSession(studioId: StudioId) async throws -> Session`. While it's running, disable the button and show a spinner; on success show a brief success banner; on failure show an error banner. Importantly, the live sessions list keeps updating in the background throughout -- starting a workout should never interrupt or reset it, and the button's in-flight/success/error status should never get reset by a sessions list update arriving mid-flight. We have a local Swift package called StreamUI (path: /Users/max/dev/rozd/stream-ui, product name StreamUI) a teammate says is meant for exactly this kind of live-data + action screen. Write the actual Swift files: the store(s)/backing types and the SessionsScreen view.",
+      "expected_output": "The sessions store overrides makeStream() (not a factory closure capturing `date`) and calls refresh() from date's didSet. A separate observed 'start workout' status (idle/starting/success/error) lives beside the streamed state, not inside it, so a sessions re-emission mid-purchase cannot clobber it. Likely uses FutureValue or a hand-rolled status property + SideEffect for the start-workout action.",
+      "files": [],
+      "assertions": [
+        "Code compiles successfully against the local StreamUI package (swift build)",
+        "The sessions store overrides makeStream() rather than capturing `date` in a factory closure passed to StreamValue's init, and calls refresh() from date's didSet",
+        "A separate observed property outside the streamed session-list payload tracks the start-workout status/feedback, so a sessions re-emission cannot reset it mid-flight",
+        "The Start Workout action is modeled as a one-shot operation (FutureValue and/or SideEffect), not folded into the StreamValue's streamed payload"
+      ]
+    }
+  ]
+}
