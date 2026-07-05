@@ -1,7 +1,8 @@
+@MainActor
 public struct SideEffect<Input, Output> {
-    let operation: (Input) async throws -> Output
+    let operation: @MainActor (Input) async throws -> Output
 
-    public init(_ operation: @escaping (Input) async throws -> Output) {
+    public init(_ operation: @escaping @MainActor (Input) async throws -> Output) {
         self.operation = operation
     }
 

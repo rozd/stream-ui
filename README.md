@@ -153,6 +153,7 @@ write-path primitive — keep writes out of `StreamValue`s.
 ### `SideEffect<Input, Output>`
 
 ```swift
+@MainActor
 struct SideEffect<Input, Output> {
     let operation: (Input) async throws -> Output
     init(_ operation: @escaping (Input) async throws -> Output)

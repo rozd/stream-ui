@@ -184,6 +184,17 @@ The app builds with MainActor-as-default isolation. Facts that bit during this w
   kills the whole parallel test process — every other test "fails" in 0.000s, and the
   blamed test in the report is whichever was running, not necessarily the culprit.
   Read the `.ips` crash report's faulting frame, not the failure list.
+- **Default-isolation is a per-module compiler setting — it does not cross a package
+  boundary.** While `SideEffect` lived inside the app target, it inherited the app's
+  MainActor-as-default flag "for free" and every `.run()` call executed on MainActor
+  with no actor hop. Extracted into this package (built with the *language default*,
+  nonisolated), `run()` became a genuinely nonisolated method: calling it from
+  MainActor code now has to *send* the captured operation closure across an actor
+  hop, and Swift 6's sending checker correctly refuses to send a closure that
+  captures unsynchronized mutable state. Fix: `SideEffect` is `@MainActor` explicitly.
+  General lesson for this package: never rely on a consumer's default-isolation
+  setting — annotate every type's actual intended isolation explicitly (see
+  `StreamValue`/`FutureValue`, both already `@MainActor`).
 
 ## v1 → v2 API mapping
 
