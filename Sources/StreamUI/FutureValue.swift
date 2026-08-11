@@ -1,4 +1,9 @@
 import Observation
+#if canImport(SkipFuse)
+// In Skip (https://skip.dev) builds, lets these @Observables drive the
+// Android UI; absent outside Skip, so plain Apple builds are unaffected.
+import SkipFuse
+#endif
 
 @MainActor
 @Observable

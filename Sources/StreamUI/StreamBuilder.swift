@@ -29,7 +29,9 @@ public struct StreamBuilder<
     private let value: (Data) -> Value
     private let failure: (Error) -> Failure
 
-    @State private var sequenceState: StreamState<Data> = .empty
+    // Internal, not private: Skip's bridge generator emits same-module
+    // extensions for Android that need access to the state box.
+    @State var sequenceState: StreamState<Data> = .empty
 
     public init(
         _ stream: StreamValue<Data>,
@@ -119,10 +121,15 @@ func consumeSequence<T: Sendable>(
     update: (StreamState<T>) -> Void
 ) async {
     let stream = make()
-    // Class-backed sequences (Firestore's ListenerStream) clean up in
-    // deinit, and nothing retains them once the iterator is taken — pin
-    // the sequence for the whole loop or the listener dies before the
-    // first snapshot.
+    // Defense-in-depth, adapter-agnostic: an AsyncThrowingStream (or any
+    // sequence) terminates when the last reference to its shared context —
+    // the sequence value and its iterators — is released. Iterators alone
+    // do not retain the sequence they came from, so a chain of `map`/
+    // `flatMap` around a temporary can drop the last strong reference the
+    // moment the iterator is taken. Pinning the sequence for the whole loop
+    // keeps it alive regardless of adapter shape. Class-backed sequences
+    // that clean up in `deinit` remain fundamentally unsafe once composed
+    // under operators — see DESIGN.md §Sequence lifetime.
     defer { withExtendedLifetime(stream) {} }
     do {
         for try await item in stream {
