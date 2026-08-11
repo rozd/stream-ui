@@ -1,7 +1,14 @@
 import Foundation
 
-/// Shaped like Firestore's `ListenerStream`: finishing the continuation in
-/// `deinit` stands in for removing the snapshot listener.
+/// Exercises the worst-case adapter shape: a class-backed sequence that
+/// finishes its continuation in `deinit`, standing in for any listener wrapper
+/// that ties teardown (removing a subscription, etc.) to `deinit`. Such
+/// sequences must never be composed under `map`/`flatMap` — those operators
+/// retain only the iterator they produce, not the sequence value, so the
+/// moment nothing else holds the class instance, `deinit` fires and tears
+/// down early. This fixture is consumed directly (never composed) to isolate
+/// what `run()`'s `withExtendedLifetime` pin does and doesn't guarantee — see
+/// DESIGN.md §Sequence lifetime.
 nonisolated final class DeinitFinishingSequence: AsyncSequence, @unchecked Sendable {
     typealias AsyncIterator = AsyncThrowingStream<Int, any Error>.AsyncIterator
 

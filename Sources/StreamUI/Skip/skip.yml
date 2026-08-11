@@ -1,0 +1,8 @@
+# Configuration file for Skip (https://skip.dev) project
+#
+# StreamUI is a native (Skip Fuse) module: the same Swift sources are compiled
+# by the Android Swift toolchain rather than transpiled to Kotlin. On Android,
+# `import SwiftUI` resolves to SkipFuseUI's SwiftUI shim over Jetpack Compose.
+skip:
+  mode: 'native'
+  package: 'com.github.rozd.streamui'

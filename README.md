@@ -15,6 +15,37 @@ streams, any `AsyncSequence`) to SwiftUI views with three guarantees:
    mutation goes through one named, deliberately-ephemeral seam (`patch`). Flow state
    that must survive stream emissions lives *beside* the streamed state, never inside it.
 
+## Platform support — including Android via Skip
+
+iOS 18+ / macOS 15+ natively. On Android, StreamUI works as a **native-mode
+[Skip](https://skip.dev) module**: the same Swift sources are compiled by the
+Android Swift toolchain (no transpilation), `import SwiftUI` resolves to
+SkipFuseUI's SwiftUI shim over Jetpack Compose, and the `@Observable` stores
+drive Compose recomposition.
+
+Skip support is invisible to Apple-only consumers. The Skip dependencies and
+the `skipstone` plugin are added by the tail of `Package.swift` only when
+`SKIP_BRIDGE=1` is set in the environment — which Skip's own tooling does
+(`skip android build`, `skip android test`, and Skip Fuse app builds). A plain
+`swift build` / Xcode consumer resolves a dependency-free package.
+
+To consume from a Skip Fuse app, add StreamUI as an ordinary SPM dependency of
+the app's shared module; skipstone reads `Sources/StreamUI/Skip/skip.yml`
+(`mode: 'native'`) and folds the module into the Android build.
+
+To verify the Android build locally:
+
+```sh
+brew install skiptools/skip/skip
+skip android sdk install    # one-time: Swift Android SDK
+skip android build          # cross-compile this package for Android
+skip android test           # run the test suite on an Android device/emulator
+```
+
+Caveat: plain and `SKIP_BRIDGE=1` builds share `.build/`, and alternating
+between them leaves stale module caches (symptom: `missing required module
+'CJNI'`). Run `rm -rf .build` when switching.
+
 ## Files
 
 | File | Contents |
@@ -26,8 +57,9 @@ streams, any `AsyncSequence`) to SwiftUI views with three guarantees:
 
 Companion (app-side, not part of this package): a Firestore→`AsyncSequence` adapter
 (`.stream` on `Query` / `DocumentReference`) that this kit has no idea exists — the only
-coupling is behavioral: the `withExtendedLifetime` pin in `run()` exists *for*
-class-backed adapters like that one (see DESIGN.md §Sequence lifetime).
+coupling is behavioral: the `withExtendedLifetime` pin in `run()` is retained as
+defense-in-depth so the sequence value outlives the consuming loop for *any* adapter,
+not just this one (see DESIGN.md §Sequence lifetime).
 
 ## Quick start
 
@@ -313,8 +345,9 @@ reusable fixtures:
 // Poll-until helper (everything is MainActor-cooperative).
 func eventually(timeout: Duration = .seconds(2), _ condition: @MainActor () -> Bool) async throws
 
-// Mimics Firestore's ListenerStream: finishes its stream in deinit.
-// Guards the withExtendedLifetime pin in run() — see DESIGN.md §Sequence lifetime.
+// Worst-case, deinit-finishing class-backed sequence, consumed directly (not
+// composed under an operator). Guards the withExtendedLifetime pin in run() —
+// see DESIGN.md §Sequence lifetime.
 final class DeinitFinishingSequence: AsyncSequence, @unchecked Sendable { … }
 ```
 

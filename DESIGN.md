@@ -138,21 +138,44 @@ subscribe-fail-resubscribe spin against Firestore. v2 has no parked loops at all
 
 ### Sequence lifetime (the `withExtendedLifetime` pin in `run()`)
 
-The Firestore adapter returns a **class-backed** sequence: `ListenerStream` finishes
-its continuation in `deinit` (that is its whole purpose — it guarantees listener
-removal when a downstream `map` throws and the terminal `onTermination` would never
-fire). The mapped chain (`ListenerStream().map{}.map{}`) is structs-around-a-class,
-and **iterators do not retain the sequences they came from**. Therefore:
+`AsyncThrowingStream` — and `AsyncSequence` in general — terminates when the **last
+reference to its shared context (the sequence value itself, and any iterators taken
+from it) is released**. For a plain, value-backed `AsyncThrowingStream` that's a
+non-event: its iterator holds the shared storage directly, independent of whatever
+wrapper struct (`map`, `flatMap`, …) produced it, so the storage survives even when
+an operator keeps only the iterator and drops the sequence value that created it.
+
+That is *not* true in general. A **class-backed** sequence that ties a teardown
+action to `deinit` (a listener wrapper that starts a subscription in `init` and
+removes it in `deinit`, because `deinit` is the one hook guaranteed to run
+regardless of how consumption ends) has no such safety net: **`map`/`flatMap` chains
+retain only the iterator produced by their upstream, never the upstream sequence
+value itself.** The moment nothing but that iterator is left, the class instance's
+reference count hits zero, `deinit` runs, and its teardown action — finishing the
+continuation, removing the listener — fires immediately, however early that is in
+the consumption. This is exactly the failure this package hit in its own history: an
+app-side adapter shaped like this (finishing its stream in `deinit`) was composed
+through a `flatMap`, which held only the iterator; the wrapper was deallocated right
+after `makeAsyncIterator()`, `deinit` ran, and the underlying listener was torn down
+before the first value ever arrived. Symptom: app-wide infinite loading, zero
+errors, no listener channel ever actually opened. That adapter has since been
+replaced with a value-backed one — the app's Firestore adapter is now a plain
+`AsyncThrowingStream` — but the hazard is a property of *any* class-backed,
+deinit-cleanup adapter, not of one named app type, and it does not go away just
+because today's adapter avoids it: **such sequences must never be composed under
+`map`/`flatMap`; an adapter with deinit-driven teardown has to stay value-backed
+(or be consumed directly, uncomposed) to be safe.**
 
 ```swift
 for try await value in makeStream() { … }   // BROKEN — do not "simplify" to this
 ```
 
-deallocates `ListenerStream` right after `makeAsyncIterator()`, its `deinit` finishes
-the continuation, and the listener dies before the first snapshot. Symptom: app-wide
-infinite loading, zero errors, no Firestore watch channel ever opened. This was found
-via a baseline-vs-change control run on the Lab build (unit tests with plain
-`AsyncThrowingStream`s cannot catch it — the stream storage outlives the wrapper).
+is still worth flagging even though today's adapters are value-backed: `run()`
+consumes `any AsyncSequence<T, any Error> & Sendable`, a signature that says nothing
+about how the concrete sequence manages its lifetime. Skipping the pin bets that
+every current *and future* adapter behind that existential happens to survive being
+dropped between `makeStream()` and the first `await` — true for a plain
+`AsyncThrowingStream`, false the moment anyone hands `run()` a class-backed one.
 
 The fix in `run()`:
 
@@ -164,8 +187,16 @@ for try await value in stream { … }
 
 A plain `let` binding is what accidentally saved v1 (its `observe()` had one), but a
 local's guaranteed lifetime only extends to its last use — the `defer` pin makes it
-airtight under optimization. Regression test: `retainsClassBackedSequence` iterates a
-`DeinitFinishingSequence` that mirrors `ListenerStream` exactly.
+airtight under optimization. This is retained as **defense-in-depth**: it costs
+nothing for the value-backed adapters this package is actually used with today, and
+it keeps `run()`'s and `consumeSequence(from:update:)`'s contract adapter-agnostic
+instead of silently depending on "the current adapter happens to be safe." It does
+**not**, by itself, make a class-backed adapter safe to compose under `map`/
+`flatMap` — see above; that hazard is only avoided by not composing such adapters at
+all. Regression test: `retainsClassBackedSequence` iterates a
+`DeinitFinishingSequence` — a worst-case, deinit-finishing class-backed sequence,
+consumed directly rather than through an operator — to confirm the pin keeps it
+alive for the whole loop.
 
 ### MainActor-by-default isolation (app target setting)
 
@@ -244,3 +275,27 @@ Bugs fixed by the redesign (all reproduced/verified before fixing):
   (`SequenceBuilder`) and was folded into `StreamBuilder` as a second initializer.
 - `when` / `maybeWhen` / `whenValue` on `StreamState` are Dart/freezed-style folds kept
   for ergonomics; `StreamBuilder` itself switches directly and does not need them.
+
+## Android via Skip (native mode)
+
+The package doubles as a native-mode [Skip](https://skip.dev) module: the same Swift is
+compiled by the Android Swift toolchain (never transpiled — the transpiler's Swift
+subset could not express the typed-throws existentials, key-path bindings, or `open`
+`@Observable` subclassing used here). `import SwiftUI` resolves to SkipFuseUI's
+`SwiftUI` shim over Jetpack Compose on Android; `import Observation` is the Swift
+stdlib on both platforms.
+
+Mechanics, and the two accommodations the code makes:
+
+- **Activation is env-gated.** The tail of `Package.swift` adds the Skip dependencies,
+  the `skipstone` plugin, and dynamic library linkage only when `SKIP_BRIDGE=1` —
+  which `skip android build/test` and Skip Fuse app builds set. Apple-only consumers
+  resolve a dependency-free package. `Sources/StreamUI/Skip/skip.yml` declares
+  `mode: 'native'`.
+- **`StreamBuilder.sequenceState` is `internal`, not `private`.** skipstone's bridge
+  generator emits same-module extension files for Android that must reach the `@State`
+  box; `private` (file-scoped) hides it from them and is a hard skipstone error.
+- **`FutureValue.swift` conditionally imports `SkipFuse`.** A file that declares
+  `@Observable`s but imports neither SwiftUI nor SkipFuse cannot power Compose
+  recomposition on Android (skipstone warns). The `#if canImport(SkipFuse)` guard is
+  false outside Skip builds, so plain Apple builds are unaffected.

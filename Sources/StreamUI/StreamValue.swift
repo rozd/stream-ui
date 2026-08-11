@@ -145,10 +145,15 @@ open class StreamValue<T: Sendable> {
             state = .empty
         }
         let stream = makeStream()
-        // Class-backed sequences (Firestore's ListenerStream) clean up in
-        // deinit, and nothing retains them once the iterator is taken — pin
-        // the sequence for the whole loop or the listener dies before the
-        // first snapshot.
+        // Defense-in-depth, adapter-agnostic: an AsyncThrowingStream (or any
+        // sequence) terminates when the last reference to its shared context —
+        // the sequence value and its iterators — is released. Iterators alone
+        // do not retain the sequence they came from, so a chain of `map`/
+        // `flatMap` around a temporary can drop the last strong reference the
+        // moment the iterator is taken. Pinning the sequence for the whole loop
+        // keeps it alive regardless of adapter shape. Class-backed sequences
+        // that clean up in `deinit` remain fundamentally unsafe once composed
+        // under operators — see DESIGN.md §Sequence lifetime.
         defer { withExtendedLifetime(stream) {} }
         do {
             for try await value in stream {

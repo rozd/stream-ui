@@ -198,10 +198,15 @@ struct StreamValueTests {
 
     @Test("keeps a class-backed sequence alive for the whole run")
     func retainsClassBackedSequence() async throws {
-        // Mirrors Firestore's ListenerStream: a class wrapper that finishes
-        // its stream in deinit. If run() doesn't keep the sequence alive while
-        // iterating, the wrapper deallocates right after the iterator is taken
-        // and the stream dies before the first value arrives.
+        // Exercises the worst-case adapter shape: a class wrapper that
+        // finishes its stream in deinit, consumed directly (not composed
+        // under an operator). If run() didn't keep the sequence alive while
+        // iterating, the wrapper would deallocate right after the iterator is
+        // taken and the stream would die before the first value arrives.
+        // This does not claim such a sequence is safe once composed under
+        // map/flatMap — those operators keep only the iterator, so a
+        // deinit-finishing class-backed sequence must never be composed;
+        // see DESIGN.md §Sequence lifetime.
         let value = StreamValue<Int> {
             let (stream, continuation) = AsyncThrowingStream<Int, any Error>.makeStream()
             Task { @MainActor in
