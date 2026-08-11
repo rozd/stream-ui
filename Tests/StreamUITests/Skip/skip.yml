@@ -6,4 +6,4 @@
 # skipstone's native swift-testing harness on an Android device or emulator.
 skip:
   mode: 'native'
-  package: 'stream.ui.tests'
+  package: 'com.github.rozd.streamui.tests'

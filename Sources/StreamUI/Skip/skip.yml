@@ -5,4 +5,4 @@
 # `import SwiftUI` resolves to SkipFuseUI's SwiftUI shim over Jetpack Compose.
 skip:
   mode: 'native'
-  package: 'stream.ui'
+  package: 'com.github.rozd.streamui'
