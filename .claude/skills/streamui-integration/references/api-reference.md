@@ -39,8 +39,6 @@ of `any AsyncSequence<T, any Error> & Sendable` (aliased as `S`).
 | `func run() async` | Consumes one stream until it ends, throws, or the surrounding task is cancelled. **Call only from `.task(id: runID)`** — `StreamBuilder` and `.observing(_:)` do this for you; a free-running `Task { await store.run() }` has nothing to cancel it. Entering with a stale `.error` resets to `.empty` first (a fresh appearance visibly retries instead of showing a dead error screen). A normally-ending stream keeps its last value. |
 | `func refresh()` | The one restart verb: clears `state` to `.empty`, bumps the generation. Every observing `.task(id:)` cancels and restarts, re-invoking the factory / `makeStream()`. Safe to call repeatedly, from anywhere, even with nothing currently observing — the next run just picks it up. |
 | `func patch(_ transform: (T) throws -> T)` | Ephemeral local override of the current `.value` payload, for optimistic UI ahead of a durable write the stream will echo back. No-op in `.empty`/`.error`. A thrown transform becomes `.error`. **The next emission replaces the patch** — always pair with a durable write. |
-| `func binding<R>(_ keyPath: WritableKeyPath<T, R?>) -> Binding<R?>` | Two-way binding into the `.value` payload. Reads return `nil` outside `.value`; writes go through `patch` (so they're ephemeral, same as any patch). |
-| `func binding<R>(_ keyPath: KeyPath<T, R>) -> Binding<R?>` | Read-only projection for `let` leaves. `.constant(nil)` outside `.value`; writes through it are silently ignored. |
 
 ### Re-appearance semantics (why keep-last, not reset-to-empty)
 

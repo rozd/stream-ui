@@ -1,9 +1,0 @@
-# Configuration file for Skip (https://skip.dev) project
-#
-# The test suites use Swift Testing with async generics and @MainActor
-# isolation, which only compile as real Swift — so the test target is native
-# (Skip Fuse) like the module itself, and `skip android test` runs it through
-# skipstone's native swift-testing harness on an Android device or emulator.
-skip:
-  mode: 'native'
-  package: 'com.github.rozd.streamui.tests'

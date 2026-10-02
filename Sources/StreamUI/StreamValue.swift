@@ -1,5 +1,4 @@
 import Observation
-import SwiftUI
 
 /// Identity of one stream run: which `StreamValue` instance, and which
 /// generation of it. Used as the `id` of the `.task(id:)` that drives the run,
@@ -189,42 +188,4 @@ open class StreamValue<T: Sendable> {
             state = .error(error)
         }
     }
-}
-
-// MARK: - Binding projection
-
-extension StreamValue {
-
-    /// Projects a two-way `Binding<R?>` from the `.value(T)` case of `state`.
-    ///
-    /// Reads return the current sub-value, or `nil` when `state` is `.empty`
-    /// or `.error`. Writes `patch` the `.value(T)` payload via the key path
-    /// and are therefore ephemeral like any patch; writes against `.empty` /
-    /// `.error` are no-ops.
-    public func binding<R>(_ keyPath: WritableKeyPath<T, R?>) -> Binding<R?> {
-        Binding(
-            get: { [weak self] in
-                guard case .value(let v) = self?.state else { return nil }
-                return v[keyPath: keyPath]
-            },
-            set: { [weak self] newValue in
-                self?.patch { value in
-                    var value = value
-                    value[keyPath: keyPath] = newValue
-                    return value
-                }
-            }
-        )
-    }
-
-    /// Projects a one-way `Binding<R?>` from the `.value(T)` case of `state`
-    /// for read-only leaves (e.g. `let` properties).
-    ///
-    /// Returns `.constant(nil)` when `state` is `.empty` or `.error`; writes
-    /// through the returned binding are silently ignored.
-    public func binding<R>(_ keyPath: KeyPath<T, R>) -> Binding<R?> {
-        guard case .value(let v) = state else { return .constant(nil) }
-        return .constant(v[keyPath: keyPath])
-    }
-
 }

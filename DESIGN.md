@@ -227,6 +227,15 @@ The app builds with MainActor-as-default isolation. Facts that bit during this w
   was `.run()` syntax that avoided a method/property name collision. A plain
   `@MainActor` closure property with a non-colliding name gives the same test seam
   with one fewer concept.
+- **`binding(_:)` was removed** (both the writable and the read-only overload). The
+  writable one wrapped `patch` in a `Binding`, hiding an ephemeral override behind an
+  ordinary-looking control: every real call site used it for screen state (alert
+  `feedback`, sheet items) stored inside `T`, where the next emission — which rebuilds
+  `T` with defaults — silently reset it. It actively encouraged violating §5. The
+  read-only one returned a `.constant` that ignored writes, selected by whether the
+  property was `var` or `let`, so a model edit could silently break a control. Screen
+  state now lives in properties beside `state` and binds via `@Bindable`; display code
+  reads `state.data`.
 
 ## v1 → v2 API mapping
 
@@ -239,6 +248,7 @@ The app builds with MainActor-as-default isolation. Facts that bit during this w
 | `stream.refresh()` (cancel+restart) | `stream.refresh()` (same name, structured mechanics) |
 | `state = state.whenValue { … }` | `patch { … }` |
 | status/feedback fields inside streamed `State` | observed properties beside `state` |
+| `store.binding(\.feedback)` | `$store.feedback` (property beside `state`, via `@Bindable`) |
 | `@State private var stream` inside `StreamBuilder` | `let stream` + `ObjectIdentifier` in `runID` |
 | `onAppear { observe() } / onDisappear { finish() }` | `.task(id: runID) { await run() }` |
 
@@ -276,27 +286,3 @@ Bugs fixed by the redesign (all reproduced/verified before fixing):
   (`SequenceBuilder`) and was folded into `StreamBuilder` as a second initializer.
 - `when` / `maybeWhen` / `whenValue` on `StreamState` are Dart/freezed-style folds kept
   for ergonomics; `StreamBuilder` itself switches directly and does not need them.
-
-## Android via Skip (native mode)
-
-The package doubles as a native-mode [Skip](https://skip.dev) module: the same Swift is
-compiled by the Android Swift toolchain (never transpiled — the transpiler's Swift
-subset could not express the typed-throws existentials, key-path bindings, or `open`
-`@Observable` subclassing used here). `import SwiftUI` resolves to SkipFuseUI's
-`SwiftUI` shim over Jetpack Compose on Android; `import Observation` is the Swift
-stdlib on both platforms.
-
-Mechanics, and the two accommodations the code makes:
-
-- **Activation is env-gated.** The tail of `Package.swift` adds the Skip dependencies,
-  the `skipstone` plugin, and dynamic library linkage only when `SKIP_BRIDGE=1` —
-  which `skip android build/test` and Skip Fuse app builds set. Apple-only consumers
-  resolve a dependency-free package. `Sources/StreamUI/Skip/skip.yml` declares
-  `mode: 'native'`.
-- **`StreamBuilder.sequenceState` is `internal`, not `private`.** skipstone's bridge
-  generator emits same-module extension files for Android that must reach the `@State`
-  box; `private` (file-scoped) hides it from them and is a hard skipstone error.
-- **`FutureValue.swift` conditionally imports `SkipFuse`.** A file that declares
-  `@Observable`s but imports neither SwiftUI nor SkipFuse cannot power Compose
-  recomposition on Android (skipstone warns). The `#if canImport(SkipFuse)` guard is
-  false outside Skip builds, so plain Apple builds are unaffected.

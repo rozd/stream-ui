@@ -16,7 +16,7 @@ The subscription starts when the view appears and is cancelled when it disappear
 It restarts when you call `refresh()`. There is nothing to cancel by hand and no
 `Task` that can leak.
 
-iOS 18+ · macOS 15+ · Android through [Skip](https://skip.dev) · Swift 6 strict concurrency · no dependencies
+iOS 18+ · macOS 15+ · Swift 6 strict concurrency · no dependencies
 
 ---
 
@@ -158,7 +158,9 @@ SwiftUI still does all the lifecycle work. StreamUI never creates a `Task` of it
    disappears, and restarts when its identity changes.
 3. **One writer per state.** Only the stream writes streamed state. There is one
    intentionally temporary way to change it locally (`patch`). State that must survive
-   new emissions is kept *next to* the streamed state, not inside it.
+   new emissions is kept *next to* the streamed state, not inside it. Bind controls
+   (alerts, sheets, text fields) to those properties with `@Bindable`. StreamUI
+   deliberately offers no `Binding` into the streamed value.
 
 ---
 
@@ -191,7 +193,6 @@ A `@MainActor @Observable` class that holds the latest element of an
 | `run() async` | Consumes one stream. Call it **only** from `.task(id: runID)`, as `StreamBuilder` and `.observing` do. Never call it from a free-running `Task`. |
 | `refresh()` | The one way to restart: sets the state to `.empty` and restarts every observing task. Safe to call at any time, even when nothing observes the store. |
 | `patch(_:)` | Changes the current value temporarily, for optimistic UI. **The next emission replaces it.** Does nothing before the first value. |
-| `binding(_:)` | A `Binding` into the value. Writable key paths write through `patch`. Returns `nil` when there is no value. |
 
 **`StreamState` helpers:** `data` (the value or `nil`), `when(value:error:empty:)`
 (handles every case), `maybeWhen(…orElse:)` (handles some cases, with a fallback),
@@ -409,34 +410,11 @@ store.submitPurchase = { throw TestError() }
 
 ---
 
-## Android (Skip)
-
-StreamUI is a **native-mode [Skip](https://skip.dev) module**. The Android Swift
-toolchain compiles the same Swift sources, without transpiling them. `import SwiftUI`
-resolves to SkipFuseUI's layer over Jetpack Compose, and the `@Observable` stores
-trigger Compose recomposition.
-
-Apple-only users see none of this. `Package.swift` adds the Skip dependencies only when
-`SKIP_BRIDGE=1` is set, and Skip's own tooling sets it. To use StreamUI from a Skip
-Fuse app, add it as an ordinary SPM dependency of the shared module.
-
-```sh
-brew install skiptools/skip/skip
-skip android sdk install    # one time: the Swift Android SDK
-skip android build
-skip android test
-```
-
-> Plain builds and `SKIP_BRIDGE=1` builds share `.build/`. If you see
-> `missing required module 'CJNI'`, run `rm -rf .build`.
-
----
-
 ## Project layout
 
 | File | Contents |
 |---|---|
-| `StreamValue.swift` | `StreamValue`, `StreamRunID`, `StreamState` with its helpers, `Binding` projections |
+| `StreamValue.swift` | `StreamValue`, `StreamRunID`, `StreamState` with its helpers |
 | `StreamBuilder.swift` | `StreamBuilder` (store-based and id-based), `View.observing(_:)` |
 | `FutureValue.swift` | `FutureValue`, the one-shot async operation |
 | `DESIGN.md` | Design reasons: sequence lifetime, why factories capture their values, single-writer rules |

@@ -191,7 +191,9 @@ let purchase = FutureValue<PurchaseRequest, Receipt> { request in
 If a screen has *both* a live read (e.g. "current membership") and a write that
 affects it (e.g. "purchase a membership"), keep any in-flight status (`purchasing`,
 a transient success/error banner) in a **separate observed property beside `state`**,
-not inside the streamed payload:
+not inside the streamed payload. A quick test: if a field is not produced by the
+stream's `map`, it does not belong in `T`. Bind alerts, sheets and text fields to
+these properties with `@Bindable` — StreamUI has no `Binding` into `state`:
 
 ```swift
 @Observable
