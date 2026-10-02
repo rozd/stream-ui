@@ -29,9 +29,7 @@ public struct StreamBuilder<
     private let value: (Data) -> Value
     private let failure: (Error) -> Failure
 
-    // Internal, not private: Skip's bridge generator emits same-module
-    // extensions for Android that need access to the state box.
-    @State var sequenceState: StreamState<Data> = .empty
+    @State private var sequenceState: StreamState<Data> = .empty
 
     public init(
         _ stream: StreamValue<Data>,
