@@ -170,7 +170,7 @@ SwiftUI still does all the lifecycle work. StreamUI never creates a `Task` of it
 | A one-off stream keyed by an id, with no retry and no shared state | `StreamBuilder(id:stream:)` |
 | A view that reads `store.state` itself instead of using `StreamBuilder` | `.observing(store)` |
 | A one-shot operation: save, purchase, delete | `FutureValue` |
-| An async operation that tests should be able to replace | `SideEffect` |
+| An async operation that tests should be able to replace | A plain closure property (see [Injecting operations](#injecting-operations-for-tests)) |
 | One screen, one stream, and no need for a dependency | Honestly, plain `.task(id:)` is fine |
 
 ---
@@ -245,19 +245,6 @@ A one-shot async operation with the states `.initial → .loading → .success /
 `.initial`. It has the helpers `isLoading` and `data`. **Use it for writes, and keep
 writes out of `StreamValue`.**
 
-### `SideEffect<Input, Output>`
-
-```swift
-lazy var purchase = SideEffect<Plan, Receipt> { plan in try await api.purchase(plan) }
-
-try await purchase.run(plan)
-```
-
-An async operation wrapped in a type that tests can replace. You call it with
-`.run(_:)`, **not** with call syntax, on purpose. With call syntax, a method
-`func book()` and a property `lazy var book` would make `book()` call the *method*.
-That compiles without warnings and recurses forever.
-
 ---
 
 ## Patterns
@@ -325,7 +312,7 @@ final class PurchasingMembership: StreamValue<PurchasingMembership.State> {
     func purchase() async {
         guard status == .idle else { return }
         status = .purchasing
-        do    { try await purchase.run(); status = .purchased }
+        do    { try await submitPurchase(); status = .purchased }
         catch { status = .idle }
     }
 }
@@ -347,6 +334,28 @@ func select(studio: Studio) {
 When the stream emits again, it replaces the patch with the stored value, and the two
 match. A patch without a durable write disappears on the next emission. That is by
 design.
+
+### Injecting operations for tests
+
+StreamUI has no special type for this. A closure property on the store is enough:
+
+```swift
+@Observable
+final class PurchasingMembership: StreamValue<PurchasingMembership.State> {
+    var submitPurchase: @MainActor () async throws -> Void = { try await BillingAPI.purchase() }
+
+    func purchase() async {
+        try? await submitPurchase()
+    }
+}
+
+// In a test:
+store.submitPurchase = { throw TestError() }
+```
+
+Give the closure a name that differs from the store's methods. If a method
+`func purchase()` and a property `var purchase` share a name, `purchase()` inside
+the store calls the *method*, which compiles without warnings and recurses forever.
 
 ### Shared stores
 
@@ -388,10 +397,10 @@ func eventually(timeout: Duration = .seconds(2), _ condition: @MainActor () -> B
 final class DeinitFinishingSequence: AsyncSequence, @unchecked Sendable { … }
 ```
 
-To test a write path, replace the store's `SideEffect`:
+To test a write path, replace the store's operation closure:
 
 ```swift
-store.purchase = SideEffect { _ in throw TestError() }
+store.submitPurchase = { throw TestError() }
 ```
 
 > **Note:** If your app target uses MainActor isolation by default, mark test suites
@@ -430,7 +439,6 @@ skip android test
 | `StreamValue.swift` | `StreamValue`, `StreamRunID`, `StreamState` with its helpers, `Binding` projections |
 | `StreamBuilder.swift` | `StreamBuilder` (store-based and id-based), `View.observing(_:)` |
 | `FutureValue.swift` | `FutureValue`, the one-shot async operation |
-| `SideEffect.swift` | `SideEffect`, the async operation tests can replace |
 | `DESIGN.md` | Design reasons: sequence lifetime, why factories capture their values, single-writer rules |
 
 StreamUI does not depend on any backend. Firestore, HealthKit, CloudKit, URLSession

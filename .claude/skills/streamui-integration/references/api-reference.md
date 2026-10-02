@@ -130,61 +130,32 @@ necessarily die just because the view that started it was dismissed. `[weak self
 inside the task prevents a retain cycle; `execute` cancelling the previous run
 prevents overlapping writes from the same instance.
 
-## `SideEffect<Input, Output>`
+## Injecting operations (no dedicated type)
+
+StreamUI does not ship a wrapper for injectable operations. Use a closure property:
 
 ```swift
-@MainActor
-public struct SideEffect<Input, Output> {
-    public init(_ operation: @escaping @MainActor (Input) async throws -> Output)
-    public func run(_ input: Input) async throws -> Output
-}
-// extension where Input == Void: func run() async throws -> Output
-```
-
-A generic, injectable async operation — expose it as a `lazy var` on a store so
-tests can substitute the operation without subclassing or protocol machinery:
-
-```swift
+@Observable
 final class PurchasingMembership: StreamValue<State> {
-    lazy var purchase = SideEffect<PurchaseRequest, Receipt> { request in
+    var submitPurchase: @MainActor (PurchaseRequest) async throws -> Receipt = { request in
         try await BillingAPI.purchase(request)
     }
 }
-// In a test: instance.purchase = SideEffect { _ in Receipt.fake }
+// In a test: instance.submitPurchase = { _ in Receipt.fake }
 ```
 
-It's invoked as `.run(_:)`, deliberately not `callAsFunction`. With call syntax, a
-method and a same-shaped `lazy var` side effect sharing a bare-verb name (`func
-book()` next to `lazy var book`) would make a call to `book()` *inside* the store
-resolve to the method itself — silent infinite recursion that compiles cleanly.
-`.run()` cannot collide with a method call, which is what lets the `lazy var` keep
-the natural bare-verb name (`book`, `purchase`, `submit`) instead of an awkward one.
+**Name it differently from any method.** If `func purchase()` and `var purchase`
+coexist, `purchase()` inside the store resolves to the method: silent infinite
+recursion that compiles cleanly.
 
-**Don't write a `SideEffect` literal as a default parameter value** — the compiler
-rejects it (`default argument cannot be both main actor-isolated and
-nonisolated`), because `SideEffect.init`'s closure parameter is `@MainActor` but
-default-argument expressions are evaluated in the caller's (non-isolated)
-context:
+**Don't write a `@MainActor` closure literal as a default parameter value** — the
+compiler rejects it (`default argument cannot be both main actor-isolated and
+nonisolated`). Default to `nil` and construct it in the initializer body:
 
 ```swift
-// Compile error:
-init(deleteAccount: SideEffect<String, Void> = SideEffect { userId in
-    try await AccountAPI.deleteAccount(userId: userId)
-}) { ... }
-```
-
-Construct the default inside the initializer body instead — same injectability
-for tests, no isolation conflict:
-
-```swift
-init(userId: String, deleteAccount: SideEffect<String, Void>? = nil) {
-    self.deleteAccount = deleteAccount ?? SideEffect { userId in
+init(userId: String, deleteAccount: (@MainActor (String) async throws -> Void)? = nil) {
+    self.deleteAccount = deleteAccount ?? { userId in
         try await AccountAPI.deleteAccount(userId: userId)
     }
 }
 ```
-
-This is the same `nil`-default-then-construct-in-`init` shape `FutureValue`-backed
-views already use to stay injectable without inlining the store in `body` (see
-`SKILL.md` step 5) — it isn't a `SideEffect`-specific workaround, just where this
-particular isolation rule happens to bite.

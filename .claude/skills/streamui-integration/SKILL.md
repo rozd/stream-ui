@@ -1,6 +1,6 @@
 ---
 name: streamui-integration
-description: Integrate the StreamUI Swift package (reactive AsyncSequence -> SwiftUI bindings, https://github.com/rozd/stream-ui) into a SwiftUI app -- adding the SPM dependency, building a StreamValue-backed store, rendering it through StreamBuilder's exhaustive empty/value/error switch, wiring one-shot writes with FutureValue, and injecting testable operations with SideEffect. Use this whenever a user wants to stream Firestore/HealthKit/CloudKit/URLSession/websocket/any AsyncSequence-shaped data into a SwiftUI view, mentions StreamValue, StreamBuilder, FutureValue, SideEffect, StreamState, or "empty/value/error" rendering, or wants to replace ad-hoc onAppear/onDisappear subscription management, a leaking Task, a Combine publisher, or an ObservableObject view-model with a lifecycle-safe alternative. Also reach for it when reviewing SwiftUI code that manually starts/cancels async subscriptions, or when deciding whether a screen needs a live stream vs. a one-shot async operation.
+description: Integrate the StreamUI Swift package (reactive AsyncSequence -> SwiftUI bindings, https://github.com/rozd/stream-ui) into a SwiftUI app -- adding the SPM dependency, building a StreamValue-backed store, rendering it through StreamBuilder's exhaustive empty/value/error switch, wiring one-shot writes with FutureValue, and injecting testable operations as plain closure properties. Use this whenever a user wants to stream Firestore/HealthKit/CloudKit/URLSession/websocket/any AsyncSequence-shaped data into a SwiftUI view, mentions StreamValue, StreamBuilder, FutureValue, StreamState, or "empty/value/error" rendering, or wants to replace ad-hoc onAppear/onDisappear subscription management, a leaking Task, a Combine publisher, or an ObservableObject view-model with a lifecycle-safe alternative. Also reach for it when reviewing SwiftUI code that manually starts/cancels async subscriptions, or when deciding whether a screen needs a live stream vs. a one-shot async operation.
 ---
 
 # Integrating StreamUI into a SwiftUI app
@@ -48,7 +48,7 @@ In Xcode: **File → Add Package Dependencies…** → paste
 
 ## 2. Pick the right primitive for the job
 
-StreamUI is small on purpose — four types cover distinct jobs. Don't reach for
+StreamUI is small on purpose — three types cover distinct jobs. Don't reach for
 `StreamValue` by reflex; picking wrong shows up later as awkward code fighting the
 kit instead of using it.
 
@@ -57,7 +57,7 @@ kit instead of using it.
 | Live data (list, doc, feed) a screen subscribes to, with retry/refresh, shareable across views | `StreamValue<T>` + `StreamBuilder` |
 | A one-off subscription with no retry/refresh and nothing to name or share, keyed by an `Equatable` id | `StreamBuilder(id:stream:)` directly — skip `StreamValue` |
 | A one-shot async operation triggered by user action (submit, delete, purchase, sign-in) | `FutureValue<Params, Result>` |
-| An async operation inside a store that tests need to substitute | `SideEffect<Input, Output>`, exposed as a `lazy var` |
+| An async operation inside a store that tests need to substitute | A plain `@MainActor` closure property (`var submit: () async throws -> Void`), named differently from the store's methods |
 
 The dividing line between the first two rows: does anything need a *name*, needs to
 be *shared* across more than one view, or needs a *retry button*? If yes,
@@ -248,7 +248,7 @@ assertions) plus a worked example testing `refresh()` and error recovery.
 ## Reference files
 
 - `references/api-reference.md` — exact member tables for `StreamValue`,
-  `StreamState`, `StreamBuilder`, `View.observing(_:)`, `FutureValue`, `SideEffect`.
+  `StreamState`, `StreamBuilder`, `View.observing(_:)`, `FutureValue`, and injecting operations.
 - `references/adapter-pattern.md` — wrapping a callback/delegate/Combine source as
   an `AsyncSequence`, and the class-backed-listener lifetime hazard.
 - `references/testing.md` — the `Feed<T>` / `eventually()` test fixtures and a

@@ -32,13 +32,13 @@
       "id": 3,
       "name": "workout-sessions-parameterized",
       "prompt": "I'm building a SwiftUI iOS app (min deployment target: iOS 18). I want a screen, SessionsScreen, with: a DatePicker at the top bound to a Date; below it, a live list of workout sessions for the selected date, coming from `WorkoutsAPI.sessionsStream(studioId: StudioId, on: Date) -> AsyncThrowingStream<[WorkoutSession], Error>` (changing the date should restart the subscription with the new date); and a 'Start Workout' button that calls `await WorkoutsAPI.startSession(studioId: StudioId) async throws -> Session`. While it's running, disable the button and show a spinner; on success show a brief success banner; on failure show an error banner. Importantly, the live sessions list keeps updating in the background throughout -- starting a workout should never interrupt or reset it, and the button's in-flight/success/error status should never get reset by a sessions list update arriving mid-flight. We have a local Swift package called StreamUI (path: /Users/max/dev/rozd/stream-ui, product name StreamUI) a teammate says is meant for exactly this kind of live-data + action screen. Write the actual Swift files: the store(s)/backing types and the SessionsScreen view.",
-      "expected_output": "The sessions store overrides makeStream() (not a factory closure capturing `date`) and calls refresh() from date's didSet. A separate observed 'start workout' status (idle/starting/success/error) lives beside the streamed state, not inside it, so a sessions re-emission mid-purchase cannot clobber it. Likely uses FutureValue or a hand-rolled status property + SideEffect for the start-workout action.",
+      "expected_output": "The sessions store overrides makeStream() (not a factory closure capturing `date`) and calls refresh() from date's didSet. A separate observed 'start workout' status (idle/starting/success/error) lives beside the streamed state, not inside it, so a sessions re-emission mid-purchase cannot clobber it. Likely uses FutureValue or a hand-rolled status property + an injectable closure property for the start-workout action.",
       "files": [],
       "assertions": [
         "Code compiles successfully against the local StreamUI package (swift build)",
         "The sessions store overrides makeStream() rather than capturing `date` in a factory closure passed to StreamValue's init, and calls refresh() from date's didSet",
         "A separate observed property outside the streamed session-list payload tracks the start-workout status/feedback, so a sessions re-emission cannot reset it mid-flight",
-        "The Start Workout action is modeled as a one-shot operation (FutureValue and/or SideEffect), not folded into the StreamValue's streamed payload"
+        "The Start Workout action is modeled as a one-shot operation (FutureValue and/or an injectable closure property), not folded into the StreamValue's streamed payload"
       ]
     }
   ]

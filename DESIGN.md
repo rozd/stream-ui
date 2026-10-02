@@ -216,16 +216,17 @@ The app builds with MainActor-as-default isolation. Facts that bit during this w
   blamed test in the report is whichever was running, not necessarily the culprit.
   Read the `.ips` crash report's faulting frame, not the failure list.
 - **Default-isolation is a per-module compiler setting — it does not cross a package
-  boundary.** While `SideEffect` lived inside the app target, it inherited the app's
-  MainActor-as-default flag "for free" and every `.run()` call executed on MainActor
-  with no actor hop. Extracted into this package (built with the *language default*,
-  nonisolated), `run()` became a genuinely nonisolated method: calling it from
-  MainActor code now has to *send* the captured operation closure across an actor
-  hop, and Swift 6's sending checker correctly refuses to send a closure that
-  captures unsynchronized mutable state. Fix: `SideEffect` is `@MainActor` explicitly.
-  General lesson for this package: never rely on a consumer's default-isolation
-  setting — annotate every type's actual intended isolation explicitly (see
-  `StreamValue`/`FutureValue`, both already `@MainActor`).
+  boundary.** A type that lived inside the app target inherited the app's
+  MainActor-as-default flag "for free". Extracted into this package (built with the
+  *language default*, nonisolated), its methods became genuinely nonisolated, and
+  Swift 6's sending checker refused to send closures that captured unsynchronized
+  mutable state across the new actor hop. General lesson for this package: never rely
+  on a consumer's default-isolation setting — annotate every type's actual intended
+  isolation explicitly (see `StreamValue`/`FutureValue`, both `@MainActor`).
+- **`SideEffect` was removed.** It wrapped a single closure; its only distinct value
+  was `.run()` syntax that avoided a method/property name collision. A plain
+  `@MainActor` closure property with a non-colliding name gives the same test seam
+  with one fewer concept.
 
 ## v1 → v2 API mapping
 
