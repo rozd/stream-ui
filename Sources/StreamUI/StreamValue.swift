@@ -1,4 +1,5 @@
 import Observation
+import Synchronization
 
 /// Identity of one stream run: which `StreamValue` instance, and which
 /// generation of it. Used as the `id` of the `.task(id:)` that drives the run,
@@ -89,9 +90,11 @@ extension StreamState {
 ///   separate properties beside `state`, not inside it.
 /// - Re-appearing keeps the last value (no loading flash); `refresh()` clears
 ///   it deliberately.
-/// - Two views observing the same instance run two identical subscriptions;
-///   last writer wins. Fine for idempotent sources (Firestore snapshots), but
-///   prefer a single owner per instance.
+/// - One observer per instance. Attach `StreamBuilder` / `.observing` once,
+///   near the store's owner, and hand child views the store itself. A second
+///   concurrent run of the same generation would start a duplicate
+///   subscription racing the first for `state`; it trips an
+///   `assertionFailure` in debug builds.
 @MainActor
 @Observable
 open class StreamValue<T: Sendable> {
@@ -105,6 +108,17 @@ open class StreamValue<T: Sendable> {
     /// Monotonic run counter; part of `runID`. Observed (not ignored) so that
     /// bumping it invalidates any `.task(id: runID)` and restarts the run.
     private var generation = 0
+
+    /// Runs currently consuming a stream. Used only to detect a second
+    /// observer; a run whose task was cancelled (view gone, `refresh()`) may
+    /// still be draining and does not count.
+    @ObservationIgnored
+    private var liveRuns: [RunToken] = []
+
+    /// Called when a second live run of the current generation starts.
+    /// Internal so tests can observe the check without crashing.
+    @ObservationIgnored
+    var onDuplicateObserver: (String) -> Void = { assertionFailure($0) }
 
     @ObservationIgnored
     private let factory: (@MainActor () -> S)?
@@ -139,6 +153,24 @@ open class StreamValue<T: Sendable> {
     /// and restarts are the caller's job, delegated to SwiftUI.
     public func run() async {
         let expected = generation
+        let token = RunToken(generation: expected)
+        if liveRuns.contains(where: { $0.generation == expected && !$0.isCancelled }) {
+            onDuplicateObserver(
+                "StreamValue<\(T.self)> is observed by more than one view at once. "
+                + "Each observer runs its own subscription and they race for `state`. "
+                + "Attach StreamBuilder / .observing(_:) once and pass the store down."
+            )
+        }
+        liveRuns.append(token)
+        defer { liveRuns.removeAll { $0 === token } }
+        await withTaskCancellationHandler {
+            await consume(expected: expected)
+        } onCancel: {
+            token.cancel()
+        }
+    }
+
+    private func consume(expected: Int) async {
         if case .error = state {
             // A fresh appearance retries a failed stream from scratch.
             state = .empty
@@ -188,4 +220,16 @@ open class StreamValue<T: Sendable> {
             state = .error(error)
         }
     }
+}
+
+/// Liveness marker for one `run()`. The cancellation flag is set from the
+/// task's cancellation handler, which may fire on any thread, hence atomic.
+private final class RunToken: Sendable {
+    let generation: Int
+    private let cancelled = Atomic<Bool>(false)
+
+    init(generation: Int) { self.generation = generation }
+
+    var isCancelled: Bool { cancelled.load(ordering: .acquiring) }
+    func cancel() { cancelled.store(true, ordering: .releasing) }
 }

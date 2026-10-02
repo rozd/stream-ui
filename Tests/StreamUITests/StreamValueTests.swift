@@ -244,6 +244,68 @@ struct StreamValueTests {
         await secondRun.value
     }
 
+    // MARK: - Single observer
+
+    @Test("a second concurrent observer is reported")
+    func secondObserverIsReported() async throws {
+        let feed = Feed<Int>()
+        let value = StreamValue<Int> { feed.make() }
+        var reports: [String] = []
+        value.onDuplicateObserver = { reports.append($0) }
+
+        let first = Task { await value.run() }
+        try await eventually { feed.continuations.count == 1 }
+        let second = Task { await value.run() }
+        try await eventually { feed.continuations.count == 2 }
+
+        #expect(reports.count == 1)
+        first.cancel()
+        second.cancel()
+        await first.value
+        await second.value
+    }
+
+    @Test("a cancelled run still draining does not count as an observer")
+    func cancelledRunIsNotAnObserver() async throws {
+        let feed = Feed<Int>()
+        let value = StreamValue<Int> { feed.make() }
+        var reports: [String] = []
+        value.onDuplicateObserver = { reports.append($0) }
+
+        // The view disappeared and reappeared before the old task drained.
+        let old = Task { await value.run() }
+        try await eventually { feed.continuations.count == 1 }
+        old.cancel()
+        let reappeared = Task { await value.run() }
+        try await eventually { feed.continuations.count == 2 }
+
+        #expect(reports.isEmpty)
+        reappeared.cancel()
+        await old.value
+        await reappeared.value
+    }
+
+    @Test("refresh() restarts without being reported as a second observer")
+    func refreshIsNotASecondObserver() async throws {
+        let feed = Feed<Int>()
+        let value = StreamValue<Int> { feed.make() }
+        var reports: [String] = []
+        value.onDuplicateObserver = { reports.append($0) }
+
+        let old = Task { await value.run() }
+        try await eventually { feed.continuations.count == 1 }
+        value.refresh()
+        // SwiftUI starts the new run before the old one has noticed.
+        let restarted = Task { await value.run() }
+        try await eventually { feed.continuations.count == 2 }
+
+        #expect(reports.isEmpty)
+        old.cancel()
+        restarted.cancel()
+        await old.value
+        await restarted.value
+    }
+
     // MARK: - Helpers
 
     private func eventually(

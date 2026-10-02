@@ -105,15 +105,24 @@ v2 rules:
   `convenience init()` extensions ("invalid redeclaration of synthesized initializer").
   `makeStream()` traps with a clear message if neither factory nor override exists.
 
-### 7. Multi-observer semantics: duplicate runs, last-writer-wins
+### 7. Multi-observer semantics: one observer per store
 
 Two views observing one store each run their own `.task`, hence two identical
 subscriptions. Options considered: reference-counted single-flight with handoff
 between structured tasks (genuinely awkward — you cannot migrate a loop between
-tasks), or tolerate duplicates. Chosen: tolerate. Firestore shares the underlying
-watch channel across identical listeners, values are idempotent, and MainActor
-serializes writes. Documented, not hidden. Revisit only if a non-idempotent source
-shows up.
+tasks), tolerate duplicates, or forbid them.
+
+Originally chosen: tolerate (Firestore shares the watch channel, MainActor serializes
+writes). Reversed: the duplicate was silent and easy to create by adding
+`.observing` "to be safe", it doubled the work for non-Firestore sources, and an
+error in one run clobbered the healthy other run's value. Now chosen: forbid, in
+debug. `run()` records a token per live run; starting a run while another live run
+of the *same generation* exists calls `assertionFailure` (no-op in release). Tokens
+are flagged from `withTaskCancellationHandler` (atomic, as the handler can fire on
+any thread), so a cancelled run still draining after disappearance or `refresh()`
+does not count. That avoids false positives during SwiftUI's restart overlap.
+Multicast stays the upgrade path if one store ever needs several independent
+observers.
 
 ## Verified concurrency facts
 

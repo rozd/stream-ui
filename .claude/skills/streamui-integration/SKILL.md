@@ -64,6 +64,12 @@ be *shared* across more than one view, or needs a *retry button*? If yes,
 `StreamValue`. If it's purely "this one view shows this one id's data, restart when
 the id changes," the bare `StreamBuilder(id:stream:)` avoids ceremony.
 
+"Shared" means shared for **reading**. Exactly one view observes a store (via
+`StreamBuilder` or `.observing`), placed near its owner; other views receive the
+store and read `state`. A second concurrent observer of the same store triggers an
+`assertionFailure` in debug builds, because it would start a duplicate subscription
+that races the first.
+
 The dividing line between rows one and three: `StreamValue` is the **read path** —
 its only writer is the stream itself, plus the ephemeral `patch`. Never route a
 button-triggered write through it. `FutureValue` is the dedicated **write path**;

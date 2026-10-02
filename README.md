@@ -360,10 +360,30 @@ the store calls the *method*, which compiles without warnings and recurses forev
 
 ### Shared stores
 
-A store passed through `.environment(…)` can have several observers. Each observer
-runs its **own** subscription, and the last write wins. This is fine for idempotent
-sources (Firestore reuses one watch channel for identical listeners), but one owner
-per store is simpler.
+A store can be **read** by any number of views, but it should be **observed** by
+exactly one. Attach `StreamBuilder` or `.observing(store)` once, near where the store
+is owned, and pass the store itself (via `.environment(…)` or an init parameter) to
+child views that only read `store.state`:
+
+```swift
+struct MembershipsScreen: View {
+    @State private var memberships = MembershipsStore()
+
+    var body: some View {
+        TabView {
+            ActiveTab()      // reads memberships.state
+            HistoryTab()     // reads memberships.state
+        }
+        .environment(memberships)
+        .observing(memberships)   // the one subscription
+    }
+}
+```
+
+Every observer runs its own subscription, so two observers would mean two listeners
+racing to write `state`. Debug builds catch this: a second concurrent run of the same
+store hits an `assertionFailure`. Runs that were already cancelled (a view that just
+disappeared, or a `refresh()` restart) don't count.
 
 ---
 
